@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import qrcode
 from fpdf import FPDF
 
 from app.logic.models import Invoice, Settings
@@ -90,7 +91,10 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
     pdf.cell(0, 10, "Section QR-facture", ln=True)
     payload = build_payload(invoice, settings)
     qr_text = payload.to_text()
-    pdf.qr_code(qr_text, x=10, y=30, size=60)
+    qr_temp_path = Path(__file__).resolve().parent / "qr_temp.png"
+    qr_image = qrcode.make(qr_text)
+    qr_image.save(qr_temp_path)
+    pdf.image(str(qr_temp_path), x=10, y=30, w=60, h=60)
 
     pdf.set_xy(80, 30)
     pdf.set_font("Helvetica", size=11)
@@ -112,4 +116,8 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
 
     filename = FACTURE_DIR / f"Facture_{invoice.number}_{invoice.client.company.replace(' ', '_')}.pdf"
     pdf.output(str(filename))
+    try:
+        qr_temp_path.unlink()
+    except FileNotFoundError:
+        pass
     return filename
