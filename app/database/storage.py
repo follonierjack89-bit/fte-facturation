@@ -200,6 +200,34 @@ def list_items() -> List[Item]:
     ]
 
 
+def get_item_by_reference(reference: str) -> Optional[Item]:
+    if not reference:
+        return None
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, reference, description, unit_price, default_quantity FROM items WHERE lower(reference)=lower(?)",
+            (reference,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return Item(id=row[0], reference=row[1], description=row[2], unit_price=row[3], default_quantity=row[4])
+
+
+def get_by_reference(reference: str) -> Optional[Item]:
+    return get_item_by_reference(reference)
+
+
+def upsert_item(item: Item) -> Item:
+    existing = get_item_by_reference(item.reference)
+    if existing:
+        item.id = existing.id
+        if not item.default_quantity:
+            item.default_quantity = existing.default_quantity
+    return save_item(item)
+
+
 def _load_client(conn: sqlite3.Connection, client_id: int) -> Client:
     cur = conn.cursor()
     cur.execute(
@@ -355,6 +383,7 @@ __all__ = [
     "list_clients",
     "save_item",
     "list_items",
+    "get_item_by_reference",
     "save_invoice",
     "list_invoices",
     "load_settings",

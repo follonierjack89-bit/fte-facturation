@@ -1,6 +1,8 @@
+import csv
 import tkinter as tk
 from datetime import date
-from tkinter import messagebox, ttk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
 from app.database import storage
 from app.logic.models import Client, Invoice, InvoiceLine, Item
@@ -127,7 +129,7 @@ class ItemsFrame(ttk.Frame):
     def __init__(self, master):
         super().__init__(master, padding=10)
         self.tree = ttk.Treeview(self, columns=("ref", "description", "price"), show="headings", height=8)
-        for col, title in [("ref", "Référence"), ("description", "Description"), ("price", "Prix")]:
+        for col, title in [("ref", "Article n°"), ("description", "Description"), ("price", "PU")]:
             self.tree.heading(col, text=title)
         self.tree.pack(fill="x")
 
@@ -136,13 +138,16 @@ class ItemsFrame(ttk.Frame):
         self.reference = tk.StringVar()
         self.description = tk.StringVar()
         self.unit_price = tk.DoubleVar(value=0.0)
-        ttk.Label(form, text="Référence").grid(row=0, column=0, sticky="w")
+        ttk.Label(form, text="Article n°").grid(row=0, column=0, sticky="w")
         ttk.Entry(form, textvariable=self.reference, width=20).grid(row=0, column=1, sticky="w")
         ttk.Label(form, text="Description").grid(row=1, column=0, sticky="w")
         ttk.Entry(form, textvariable=self.description, width=30).grid(row=1, column=1, sticky="w")
-        ttk.Label(form, text="Prix unitaire").grid(row=2, column=0, sticky="w")
+        ttk.Label(form, text="PU").grid(row=2, column=0, sticky="w")
         ttk.Entry(form, textvariable=self.unit_price, width=10).grid(row=2, column=1, sticky="w")
         ttk.Button(form, text="Ajouter", command=self.add_item).grid(row=3, column=1, sticky="w", pady=5)
+        ttk.Button(form, text="Importer depuis Excel/CSV...", command=self.on_import_items).grid(
+            row=3, column=2, sticky="w", padx=5
+        )
         self.refresh()
 
     def refresh(self):
@@ -150,6 +155,81 @@ class ItemsFrame(ttk.Frame):
             self.tree.delete(row)
         for item in storage.list_items():
             self.tree.insert("", "end", values=(item.reference, item.description, f"{item.unit_price:.2f}"))
+
+    def on_import_items(self):
+        filename = filedialog.askopenfilename(
+            title="Importer des articles",
+            filetypes=[
+                ("Fichiers CSV/Excel", "*.csv *.xlsx *.xls"),
+                ("CSV", "*.csv"),
+                ("Tous les fichiers", "*.*"),
+            ],
+        )
+        if not filename:
+            return
+        path = Path(filename)
+        if path.suffix.lower() != ".csv":
+            messagebox.showinfo(
+                "Format non pris en charge",
+                "Merci d'enregistrer le fichier Excel au format CSV avant l'import.",
+            )
+            return
+        try:
+            inserted, updated, skipped = self.import_items_from_csv(path)
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Erreur d'import", str(exc))
+            return
+        self.refresh()
+        messagebox.showinfo(
+            "Import terminé",
+            f"Articles ajoutés: {inserted}\nArticles mis à jour: {updated}\nLignes ignorées: {skipped}",
+        )
+
+    def import_items_from_csv(self, file_path: Path) -> tuple[int, int, int]:
+        inserted = updated = skipped = 0
+        with file_path.open(newline="", encoding="utf-8-sig") as csvfile:
+            reader = csv.DictReader(csvfile)
+            headers = [h.strip() for h in reader.fieldnames or []]
+            ref_key = self._find_column(headers, ["reference", "référence", "article", "article n°", "article no"])
+            desc_key = self._find_column(headers, ["description", "desc"])
+            price_key = self._find_column(headers, ["price", "unit_price", "prix", "pu", "prix unitaire"])
+            if not ref_key or not desc_key or not price_key:
+                raise ValueError("Colonnes requises manquantes (référence, description, prix)")
+            for row in reader:
+                try:
+                    reference = (row.get(ref_key) or "").strip()
+                    description = (row.get(desc_key) or "").strip()
+                    price_raw = (row.get(price_key) or "").strip().replace(",", ".")
+                    if not reference:
+                        skipped += 1
+                        continue
+                    unit_price = float(price_raw)
+                except Exception:  # pylint: disable=broad-except
+                    skipped += 1
+                    continue
+                existing = storage.get_item_by_reference(reference)
+                default_qty = existing.default_quantity if existing else 1.0
+                item = Item(
+                    id=existing.id if existing else None,
+                    reference=reference,
+                    description=description,
+                    unit_price=unit_price,
+                    default_quantity=default_qty,
+                )
+                storage.upsert_item(item)
+                if existing:
+                    updated += 1
+                else:
+                    inserted += 1
+        return inserted, updated, skipped
+
+    @staticmethod
+    def _find_column(headers: list[str], candidates: list[str]) -> str | None:
+        lower_headers = {h.lower(): h for h in headers}
+        for candidate in candidates:
+            if candidate.lower() in lower_headers:
+                return lower_headers[candidate.lower()]
+        return None
 
     def add_item(self):
         if not self.reference.get():
@@ -217,7 +297,10 @@ class InvoiceFrame(ttk.Frame):
         self.line_price = tk.DoubleVar(value=0.0)
         self.line_discount = tk.DoubleVar(value=0.0)
         ttk.Label(line_form, text="Article n°").grid(row=0, column=0)
-        ttk.Entry(line_form, textvariable=self.line_article_number, width=15).grid(row=0, column=1)
+        article_entry = ttk.Entry(line_form, textvariable=self.line_article_number, width=15)
+        article_entry.grid(row=0, column=1)
+        article_entry.bind("<Return>", self.on_article_number_enter)
+        article_entry.bind("<FocusOut>", self.on_article_number_enter)
         ttk.Label(line_form, text="Description").grid(row=0, column=2)
         ttk.Entry(line_form, textvariable=self.line_description, width=30).grid(row=0, column=3)
         ttk.Label(line_form, text="Qté").grid(row=0, column=4)
@@ -244,6 +327,16 @@ class InvoiceFrame(ttk.Frame):
         clients = storage.list_clients()
         self.clients = {client.company: client for client in clients}
         self.client_combo["values"] = list(self.clients.keys())
+
+    def on_article_number_enter(self, event=None):  # pylint: disable=unused-argument
+        reference = self.line_article_number.get().strip()
+        if not reference:
+            return
+        item = storage.get_item_by_reference(reference)
+        if not item:
+            return
+        self.line_description.set(item.description)
+        self.line_price.set(item.unit_price)
 
     def add_line(self):
         if not self.line_description.get():
