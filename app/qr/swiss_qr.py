@@ -1,71 +1,49 @@
-from dataclasses import dataclass
-from typing import Optional
-
-from app.logic.models import Client, Invoice, Settings
+from app.logic.models import Invoice, Settings
 
 
-@dataclass
-class SwissQRPayload:
-    account: str
-    creditor_name: str
-    creditor_street: str
-    creditor_zip: str
-    creditor_city: str
-    creditor_country: str
-    amount: Optional[float]
-    currency: str
-    debtor_name: str
-    debtor_street: str
-    debtor_zip: str
-    debtor_city: str
-    debtor_country: str
+def build_payload(invoice: Invoice, settings: Settings) -> str:
+    """Build the Swiss QR bill payload following SPC 0200 field order."""
 
-    def to_text(self) -> str:
-        amount_value = f"{self.amount:.2f}" if self.amount is not None else ""
-        fields = [
-            "SPC",
-            "0200",
-            "1",
-            self.account,
-            "K",
-            self.creditor_name,
-            self.creditor_street,
-            f"{self.creditor_zip} {self.creditor_city}",
-            self.creditor_country,
-            "",
-            "",
-            "",
-            "",
-            amount_value,
-            self.currency,
-            self.debtor_name,
-            self.debtor_street,
-            f"{self.debtor_zip} {self.debtor_city}",
-            self.debtor_country,
-            "",
-            "",
-            "",
-            "EPD",
-        ]
-        return "\n".join(fields)
-
-
-def build_payload(invoice: Invoice, settings: Settings) -> SwissQRPayload:
     def normalize_country(value: str) -> str:
         return "CH" if value.strip().lower() == "switzerland" else value
 
-    return SwissQRPayload(
-        account=settings.qr_iban,
-        creditor_name=settings.company_name,
-        creditor_street=settings.street,
-        creditor_zip=settings.zip_code,
-        creditor_city=settings.city,
-        creditor_country=normalize_country(settings.country),
-        amount=invoice.total,
-        currency="CHF",
-        debtor_name=invoice.client.company,
-        debtor_street=invoice.client.street,
-        debtor_zip=invoice.client.zip_code,
-        debtor_city=invoice.client.city,
-        debtor_country=normalize_country(invoice.client.country),
-    )
+    creditor_country = normalize_country(settings.country)
+    debtor_country = normalize_country(invoice.client.country)
+
+    amount_value = f"{invoice.total:.2f}" if invoice.total is not None else ""
+
+    lines = [
+        "SPC",  # Header: QR type
+        "0200",  # Version
+        "1",  # Coding type
+        settings.qr_iban,  # Account
+        "K",  # Creditor address type (structured)
+        settings.company_name,
+        settings.street,
+        "",  # Creditor house number (not stored separately)
+        settings.zip_code,
+        settings.city,
+        creditor_country,
+        "",  # Ultimate creditor (5 empty lines)
+        "",
+        "",
+        "",
+        "",
+        "CHF",  # Currency
+        amount_value,  # Amount
+        "K",  # Debtor address type (structured)
+        invoice.client.company,
+        invoice.client.street,
+        "",  # Debtor house number (not stored separately)
+        invoice.client.zip_code,
+        invoice.client.city,
+        debtor_country,
+        "NON",  # Reference type (non-structured)
+        "",  # Reference number
+        "",  # Additional information
+        "EPD",  # Trailer
+        "",  # Alternative scheme 1
+        "",  # Alternative scheme 2
+    ]
+
+    return "\n".join(lines)

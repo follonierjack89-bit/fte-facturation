@@ -89,8 +89,7 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 10, "Section QR-facture", ln=True)
-    payload = build_payload(invoice, settings)
-    qr_text = payload.to_text()
+    qr_text = build_payload(invoice, settings)
     qr_temp_path = Path(__file__).resolve().parent / "qr_temp.png"
     qr_image = qrcode.make(qr_text)
     qr_image.save(qr_temp_path)
