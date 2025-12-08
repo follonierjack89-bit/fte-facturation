@@ -30,13 +30,16 @@ class Item:
 @dataclass
 class InvoiceLine:
     item: Optional[Item]
+    article_number: str
     description: str
     quantity: float
     unit_price: float
+    discount_percent: float = 0.0
 
     @property
     def total(self) -> float:
-        return round(self.quantity * self.unit_price, 2)
+        discount_factor = 1 - (self.discount_percent or 0.0) / 100.0
+        return round(self.quantity * self.unit_price * discount_factor, 2)
 
 
 @dataclass

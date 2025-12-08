@@ -176,6 +176,7 @@ class InvoiceFrame(ttk.Frame):
         self.date_var = tk.StringVar(value=date.today().isoformat())
         self.notes = tk.StringVar()
         self.lines: list[InvoiceLine] = []
+        self.editing_line_index: int | None = None
 
         top = ttk.Frame(self)
         top.pack(fill="x")
@@ -190,23 +191,43 @@ class InvoiceFrame(ttk.Frame):
         ttk.Label(top, text="Remarques").grid(row=2, column=0, sticky="nw")
         ttk.Entry(top, textvariable=self.notes, width=60).grid(row=2, column=1, sticky="w")
 
-        self.lines_tree = ttk.Treeview(self, columns=("description", "qty", "price", "total"), show="headings", height=6)
-        for col, title in [("description", "Description"), ("qty", "Qté"), ("price", "PU"), ("total", "Total")]:
+        self.lines_tree = ttk.Treeview(
+            self,
+            columns=("article", "description", "qty", "price", "discount", "total"),
+            show="headings",
+            height=6,
+        )
+        for col, title in [
+            ("article", "Article"),
+            ("description", "Description"),
+            ("qty", "Qté"),
+            ("price", "PU"),
+            ("discount", "Remise %"),
+            ("total", "Total"),
+        ]:
             self.lines_tree.heading(col, text=title)
+        self.lines_tree.bind("<Double-1>", self.on_line_double_click)
         self.lines_tree.pack(fill="x", pady=5)
 
         line_form = ttk.Frame(self)
         line_form.pack(fill="x", pady=5)
+        self.line_article_number = tk.StringVar()
         self.line_description = tk.StringVar()
         self.line_qty = tk.DoubleVar(value=1.0)
         self.line_price = tk.DoubleVar(value=0.0)
-        ttk.Label(line_form, text="Description").grid(row=0, column=0)
-        ttk.Entry(line_form, textvariable=self.line_description, width=30).grid(row=0, column=1)
-        ttk.Label(line_form, text="Qté").grid(row=0, column=2)
-        ttk.Entry(line_form, textvariable=self.line_qty, width=8).grid(row=0, column=3)
-        ttk.Label(line_form, text="PU").grid(row=0, column=4)
-        ttk.Entry(line_form, textvariable=self.line_price, width=10).grid(row=0, column=5)
-        ttk.Button(line_form, text="Ajouter la ligne", command=self.add_line).grid(row=0, column=6, padx=5)
+        self.line_discount = tk.DoubleVar(value=0.0)
+        ttk.Label(line_form, text="Article n°").grid(row=0, column=0)
+        ttk.Entry(line_form, textvariable=self.line_article_number, width=15).grid(row=0, column=1)
+        ttk.Label(line_form, text="Description").grid(row=0, column=2)
+        ttk.Entry(line_form, textvariable=self.line_description, width=30).grid(row=0, column=3)
+        ttk.Label(line_form, text="Qté").grid(row=0, column=4)
+        ttk.Entry(line_form, textvariable=self.line_qty, width=8).grid(row=0, column=5)
+        ttk.Label(line_form, text="PU").grid(row=0, column=6)
+        ttk.Entry(line_form, textvariable=self.line_price, width=10).grid(row=0, column=7)
+        ttk.Label(line_form, text="Remise %").grid(row=0, column=8)
+        ttk.Entry(line_form, textvariable=self.line_discount, width=8).grid(row=0, column=9)
+        self.add_line_button = ttk.Button(line_form, text="Ajouter la ligne", command=self.add_line)
+        self.add_line_button.grid(row=0, column=10, padx=5)
 
         action_bar = ttk.Frame(self)
         action_bar.pack(fill="x", pady=5)
@@ -216,6 +237,7 @@ class InvoiceFrame(ttk.Frame):
         self.total_label.pack(side="right")
 
         self.load_clients()
+        self.refresh_lines_tree()
         self.refresh_totals()
 
     def load_clients(self):
@@ -227,17 +249,30 @@ class InvoiceFrame(ttk.Frame):
         if not self.line_description.get():
             messagebox.showerror("Erreur", "Description requise")
             return
+        try:
+            quantity = float(self.line_qty.get())
+            unit_price = float(self.line_price.get())
+            discount = float(self.line_discount.get() or 0.0)
+        except ValueError:
+            messagebox.showerror("Erreur", "Valeurs numériques invalides")
+            return
+        if discount < 0 or discount > 100:
+            messagebox.showerror("Erreur", "La remise doit être entre 0 et 100")
+            return
         line = InvoiceLine(
             item=None,
+            article_number=self.line_article_number.get(),
             description=self.line_description.get(),
-            quantity=float(self.line_qty.get()),
-            unit_price=float(self.line_price.get()),
+            quantity=quantity,
+            unit_price=unit_price,
+            discount_percent=discount,
         )
-        self.lines.append(line)
-        self.lines_tree.insert("", "end", values=(line.description, line.quantity, line.unit_price, line.total))
-        self.line_description.set("")
-        self.line_qty.set(1.0)
-        self.line_price.set(0.0)
+        if self.editing_line_index is None:
+            self.lines.append(line)
+        else:
+            self.lines[self.editing_line_index] = line
+        self.reset_line_form()
+        self.refresh_lines_tree()
         self.refresh_totals()
 
     def build_invoice(self) -> Invoice:
@@ -255,6 +290,49 @@ class InvoiceFrame(ttk.Frame):
             notes=self.notes.get(),
             vat_rate=self.settings.vat_rate if self.settings.vat_enabled else 0.0,
         )
+
+    def on_line_double_click(self, event):  # pylint: disable=unused-argument
+        selection = self.lines_tree.selection()
+        if not selection:
+            return
+        index = self.lines_tree.index(selection[0])
+        if index >= len(self.lines):
+            return
+        line = self.lines[index]
+        self.editing_line_index = index
+        self.line_article_number.set(line.article_number)
+        self.line_description.set(line.description)
+        self.line_qty.set(line.quantity)
+        self.line_price.set(line.unit_price)
+        self.line_discount.set(line.discount_percent)
+        self.add_line_button.config(text="Mettre à jour la ligne")
+
+    def refresh_lines_tree(self):
+        for row in self.lines_tree.get_children():
+            self.lines_tree.delete(row)
+        for idx, line in enumerate(self.lines):
+            self.lines_tree.insert(
+                "",
+                "end",
+                iid=str(idx),
+                values=(
+                    line.article_number,
+                    line.description,
+                    f"{line.quantity:.2f}",
+                    f"{line.unit_price:.2f}",
+                    f"{line.discount_percent:.2f}",
+                    f"{line.total:.2f}",
+                ),
+            )
+
+    def reset_line_form(self):
+        self.editing_line_index = None
+        self.line_article_number.set("")
+        self.line_description.set("")
+        self.line_qty.set(1.0)
+        self.line_price.set(0.0)
+        self.line_discount.set(0.0)
+        self.add_line_button.config(text="Ajouter la ligne")
 
     def save_invoice(self):
         try:

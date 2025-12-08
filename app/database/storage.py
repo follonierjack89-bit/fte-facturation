@@ -58,15 +58,18 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS invoice_lines (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 invoice_id INTEGER NOT NULL,
+                article_number TEXT,
                 description TEXT NOT NULL,
                 quantity REAL NOT NULL,
                 unit_price REAL NOT NULL,
+                discount_percent REAL,
                 item_id INTEGER,
                 FOREIGN KEY(invoice_id) REFERENCES invoices(id),
                 FOREIGN KEY(item_id) REFERENCES items(id)
             )
             """
         )
+        _migrate_invoice_lines_table(cur)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -76,6 +79,15 @@ def init_db() -> None:
             """
         )
         conn.commit()
+
+
+def _migrate_invoice_lines_table(cur: sqlite3.Cursor) -> None:
+    cur.execute("PRAGMA table_info(invoice_lines)")
+    columns = {row[1] for row in cur.fetchall()}
+    if "article_number" not in columns:
+        cur.execute("ALTER TABLE invoice_lines ADD COLUMN article_number TEXT DEFAULT ''")
+    if "discount_percent" not in columns:
+        cur.execute("ALTER TABLE invoice_lines ADD COLUMN discount_percent REAL DEFAULT 0.0")
 
 
 @contextmanager
@@ -252,14 +264,16 @@ def save_invoice(invoice: Invoice) -> Invoice:
         for line in invoice.lines:
             cur.execute(
                 """
-                INSERT INTO invoice_lines(invoice_id, description, quantity, unit_price, item_id)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO invoice_lines(invoice_id, article_number, description, quantity, unit_price, discount_percent, item_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     invoice.id,
+                    line.article_number,
                     line.description,
                     line.quantity,
                     line.unit_price,
+                    line.discount_percent,
                     line.item.id if line.item else None,
                 ),
             )
@@ -279,16 +293,23 @@ def list_invoices(conn: Optional[sqlite3.Connection] = None) -> List[Invoice]:
     for row in rows:
         client = _load_client(conn, row[3])
         cur.execute(
-            "SELECT description, quantity, unit_price, item_id FROM invoice_lines WHERE invoice_id=?",
+            "SELECT article_number, description, quantity, unit_price, discount_percent, item_id FROM invoice_lines WHERE invoice_id=?",
             (row[0],),
         )
         line_rows = cur.fetchall()
         item_map = {item.id: item for item in list_items()}
         lines: List[InvoiceLine] = []
-        for description, quantity, unit_price, item_id in line_rows:
+        for article_number, description, quantity, unit_price, discount_percent, item_id in line_rows:
             item = item_map.get(item_id) if item_id else None
             lines.append(
-                InvoiceLine(item=item, description=description, quantity=quantity, unit_price=unit_price)
+                InvoiceLine(
+                    item=item,
+                    article_number=article_number or "",
+                    description=description,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    discount_percent=discount_percent or 0.0,
+                )
             )
         invoices.append(
             Invoice(
