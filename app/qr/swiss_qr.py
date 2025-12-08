@@ -51,18 +51,21 @@ class SwissQRPayload:
 
 
 def build_payload(invoice: Invoice, settings: Settings) -> SwissQRPayload:
+    def normalize_country(value: str) -> str:
+        return "CH" if value.strip().lower() == "switzerland" else value
+
     return SwissQRPayload(
         account=settings.qr_iban,
         creditor_name=settings.company_name,
         creditor_street=settings.street,
         creditor_zip=settings.zip_code,
         creditor_city=settings.city,
-        creditor_country=settings.country,
+        creditor_country=normalize_country(settings.country),
         amount=invoice.total,
         currency="CHF",
         debtor_name=invoice.client.company,
         debtor_street=invoice.client.street,
         debtor_zip=invoice.client.zip_code,
         debtor_city=invoice.client.city,
-        debtor_country=invoice.client.country,
+        debtor_country=normalize_country(invoice.client.country),
     )
