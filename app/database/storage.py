@@ -210,6 +210,11 @@ def _load_client(conn: sqlite3.Connection, client_id: int) -> Client:
     )
 
 
+def load_client(client_id: int) -> Client:
+    with connection() as conn:
+        return _load_client(conn, client_id)
+
+
 def save_invoice(invoice: Invoice) -> Invoice:
     with connection() as conn:
         cur = conn.cursor()
@@ -325,6 +330,7 @@ def save_settings(settings: Settings) -> None:
 __all__ = [
     "init_db",
     "save_client",
+    "load_client",
     "list_clients",
     "save_item",
     "list_items",

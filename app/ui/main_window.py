@@ -21,10 +21,12 @@ class Sidebar(ttk.Frame):
 class ClientsFrame(ttk.Frame):
     def __init__(self, master):
         super().__init__(master, padding=10)
+        self.editing_client_id: int | None = None
         self.tree = ttk.Treeview(self, columns=("company", "city"), show="headings", height=8)
         self.tree.heading("company", text="Client")
         self.tree.heading("city", text="Ville")
         self.tree.pack(fill="x")
+        self.tree.bind("<Double-1>", self.on_client_double_click)
 
         form = ttk.Frame(self)
         form.pack(fill="x", pady=10)
@@ -33,6 +35,9 @@ class ClientsFrame(ttk.Frame):
         self.zip_code = tk.StringVar()
         self.city = tk.StringVar()
         self.country = tk.StringVar(value="Switzerland")
+        self.email = tk.StringVar()
+        self.phone = tk.StringVar()
+        self.internal_code = tk.StringVar()
         ttk.Label(form, text="Raison sociale").grid(row=0, column=0, sticky="w")
         ttk.Entry(form, textvariable=self.company, width=30).grid(row=0, column=1, sticky="w")
         ttk.Label(form, text="Rue").grid(row=1, column=0, sticky="w")
@@ -43,33 +48,79 @@ class ClientsFrame(ttk.Frame):
         ttk.Entry(form, textvariable=self.city, width=30).grid(row=3, column=1, sticky="w")
         ttk.Label(form, text="Pays").grid(row=4, column=0, sticky="w")
         ttk.Entry(form, textvariable=self.country, width=30).grid(row=4, column=1, sticky="w")
-        ttk.Button(form, text="Ajouter", command=self.add_client).grid(row=5, column=1, sticky="w", pady=5)
+        ttk.Label(form, text="Email").grid(row=5, column=0, sticky="w")
+        ttk.Entry(form, textvariable=self.email, width=30).grid(row=5, column=1, sticky="w")
+        ttk.Label(form, text="Téléphone").grid(row=6, column=0, sticky="w")
+        ttk.Entry(form, textvariable=self.phone, width=30).grid(row=6, column=1, sticky="w")
+        ttk.Label(form, text="Code interne").grid(row=7, column=0, sticky="w")
+        ttk.Entry(form, textvariable=self.internal_code, width=30).grid(row=7, column=1, sticky="w")
+        self.save_button = ttk.Button(form, text="Ajouter", command=self.save_client)
+        self.save_button.grid(row=8, column=1, sticky="w", pady=5)
         self.refresh()
 
     def refresh(self):
         for row in self.tree.get_children():
             self.tree.delete(row)
         for client in storage.list_clients():
-            self.tree.insert("", "end", values=(client.company, f"{client.zip_code} {client.city}"))
+            self.tree.insert("", "end", iid=str(client.id), values=(client.company, f"{client.zip_code} {client.city}"))
 
-    def add_client(self):
+    def save_client(self):
         if not self.company.get():
             messagebox.showerror("Erreur", "Le nom du client est requis")
             return
         client = Client(
-            id=None,
+            id=self.editing_client_id,
             company=self.company.get(),
             street=self.street.get(),
             zip_code=self.zip_code.get(),
             city=self.city.get(),
             country=self.country.get(),
+            email=self.email.get(),
+            phone=self.phone.get(),
+            internal_code=self.internal_code.get(),
         )
         storage.save_client(client)
+        self.reset_form()
+        self.refresh()
+
+    def on_client_double_click(self, event):  # pylint: disable=unused-argument
+        selection = self.tree.selection()
+        if not selection:
+            return
+        try:
+            client_id = int(selection[0])
+        except ValueError:
+            return
+        try:
+            client = storage.load_client(client_id)
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Erreur", str(exc))
+            return
+        self.fill_form_from_client(client)
+
+    def fill_form_from_client(self, client: Client):
+        self.editing_client_id = client.id
+        self.company.set(client.company)
+        self.street.set(client.street)
+        self.zip_code.set(client.zip_code)
+        self.city.set(client.city)
+        self.country.set(client.country)
+        self.email.set(client.email)
+        self.phone.set(client.phone)
+        self.internal_code.set(client.internal_code)
+        self.save_button.config(text="Mettre à jour")
+
+    def reset_form(self):
+        self.editing_client_id = None
         self.company.set("")
         self.street.set("")
         self.zip_code.set("")
         self.city.set("")
-        self.refresh()
+        self.country.set("Switzerland")
+        self.email.set("")
+        self.phone.set("")
+        self.internal_code.set("")
+        self.save_button.config(text="Ajouter")
 
 
 class ItemsFrame(ttk.Frame):
