@@ -217,7 +217,10 @@ class InvoiceFrame(ttk.Frame):
         self.line_price = tk.DoubleVar(value=0.0)
         self.line_discount = tk.DoubleVar(value=0.0)
         ttk.Label(line_form, text="Article n°").grid(row=0, column=0)
-        ttk.Entry(line_form, textvariable=self.line_article_number, width=15).grid(row=0, column=1)
+        article_entry = ttk.Entry(line_form, textvariable=self.line_article_number, width=15)
+        article_entry.grid(row=0, column=1)
+        article_entry.bind("<Return>", self.on_article_number_enter)
+        article_entry.bind("<FocusOut>", self.on_article_number_enter)
         ttk.Label(line_form, text="Description").grid(row=0, column=2)
         ttk.Entry(line_form, textvariable=self.line_description, width=30).grid(row=0, column=3)
         ttk.Label(line_form, text="Qté").grid(row=0, column=4)
@@ -244,6 +247,16 @@ class InvoiceFrame(ttk.Frame):
         clients = storage.list_clients()
         self.clients = {client.company: client for client in clients}
         self.client_combo["values"] = list(self.clients.keys())
+
+    def on_article_number_enter(self, event=None):  # pylint: disable=unused-argument
+        reference = self.line_article_number.get().strip()
+        if not reference:
+            return
+        item = storage.get_item_by_reference(reference)
+        if not item:
+            return
+        self.line_description.set(item.description)
+        self.line_price.set(item.unit_price)
 
     def add_line(self):
         if not self.line_description.get():
