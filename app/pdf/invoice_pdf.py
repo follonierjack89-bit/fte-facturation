@@ -2,11 +2,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import qrcode
 from fpdf import FPDF
 
 from app.logic.models import Invoice, Settings
-from app.qr.swiss_qr import build_payload
 
 FACTURE_DIR = Path("Factures")
 FACTURE_DIR.mkdir(exist_ok=True)
@@ -25,6 +23,60 @@ class InvoicePDF(FPDF):
 
 def format_address(lines):
     return "\n".join(lines)
+
+
+def _normalize_country(value: str) -> str:
+    return "CH" if value.strip().lower() == "switzerland" else value
+
+
+def create_swiss_qr_png(invoice: Invoice, settings: Settings, destination: Path, dpi: int = 300) -> Path:
+    """Generate a fully compliant Swiss QR-bill PNG with the Swiss cross.
+
+    To adapt the QR content:
+    - Change the creditor IBAN/address by editing the `settings` values (e.g.,
+      settings.qr_iban, settings.company_name, settings.street, settings.zip_code,
+      settings.city, settings.country).
+    - Debtor data is read from the `invoice.client` fields.
+    - The amount is taken from `invoice.total`; adjust there to alter the QR amount.
+    - Provide a reference (QRR or NON) by setting `invoice.reference` if/when
+      the model is extended; currently we generate a NON-reference QR.
+    """
+
+    try:
+        from swissqrbill import QRBill
+        from swissqrbill.output import QRBillImage
+    except Exception as exc:  # pragma: no cover - dependency/runtime check
+        raise RuntimeError(
+            "Le module 'swissqrbill' (et Pillow) est requis pour générer un QR-bill conforme."
+        ) from exc
+
+    creditor_country = _normalize_country(settings.country)
+    debtor_country = _normalize_country(invoice.client.country)
+
+    # Build the QR-bill data structure (white Swiss cross included by swissqrbill)
+    bill = QRBill(
+        account=settings.qr_iban.replace(" ", ""),
+        creditor={
+            "name": settings.company_name,
+            "line1": settings.street,
+            "line2": f"{settings.zip_code} {settings.city}",
+            "country": creditor_country,
+        },
+        debtor={
+            "name": invoice.client.company,
+            "line1": invoice.client.street,
+            "line2": f"{invoice.client.zip_code} {invoice.client.city}",
+            "country": debtor_country,
+        },
+        amount=invoice.total,
+        currency="CHF",
+        reference=None,
+        additional_information=invoice.notes or "",
+    )
+
+    qr_image = QRBillImage(bill, scale=10, dpi=dpi)
+    qr_image.save(destination)
+    return destination
 
 
 def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Optional[str] = None) -> Path:
@@ -93,13 +145,16 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 10, "Section QR-facture", ln=True)
-    qr_text = build_payload(invoice, settings)
-    qr_temp_path = Path(__file__).resolve().parent / "qr_temp.png"
-    qr_image = qrcode.make(qr_text)
-    qr_image.save(qr_temp_path)
-    pdf.image(str(qr_temp_path), x=10, y=30, w=60, h=60)
 
-    pdf.set_xy(80, 30)
+    qr_temp_path = Path(__file__).resolve().parent / "qr_temp.png"
+    qr_image_path = create_swiss_qr_png(invoice, settings, qr_temp_path)
+
+    qr_size_mm = 70
+    x_pos = pdf.w - pdf.r_margin - qr_size_mm
+    y_pos = pdf.h - pdf.b_margin - qr_size_mm - 15
+    pdf.image(str(qr_image_path), x=x_pos, y=y_pos, w=qr_size_mm, h=qr_size_mm)
+
+    pdf.set_xy(10, y_pos)
     pdf.set_font("Helvetica", size=11)
     pdf.multi_cell(0, 7, format_address([
         "Compte QR-IBAN : " + settings.qr_iban,
@@ -124,3 +179,14 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
     except FileNotFoundError:
         pass
     return filename
+
+
+def generate_swiss_qr_invoice(invoice: Invoice, settings: Settings, logo_path: Optional[str] = None) -> Path:
+    """Generate a PDF invoice embedding a compliant Swiss QR-bill image.
+
+    This dedicated entry point ensures the QR is produced with the swissqrbill
+    library (white Swiss cross included) before being embedded at the correct
+    position in the PDF layout.
+    """
+
+    return generate_invoice_pdf(invoice, settings, logo_path)

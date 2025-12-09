@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from app.database import storage
 from app.logic.models import Client, Invoice, InvoiceLine, Item
-from app.pdf.invoice_pdf import generate_invoice_pdf
+from app.pdf.invoice_pdf import generate_invoice_pdf, generate_swiss_qr_invoice
 
 
 class Sidebar(ttk.Frame):
@@ -444,7 +444,7 @@ class InvoiceFrame(ttk.Frame):
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Erreur", str(exc))
             return
-        filename = generate_invoice_pdf(invoice, self.settings, self.settings.logo_path or None)
+        filename = generate_swiss_qr_invoice(invoice, self.settings, self.settings.logo_path or None)
         messagebox.showinfo("PDF créé", f"Enregistré sous {filename}")
 
     def refresh_totals(self):

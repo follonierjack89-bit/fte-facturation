@@ -1,14 +1,18 @@
+from pathlib import Path
+from typing import Optional
+
 from app.logic.models import Invoice, Settings
 
 
+def _normalize_country(value: str) -> str:
+    return "CH" if value.strip().lower() == "switzerland" else value
+
+
 def build_payload(invoice: Invoice, settings: Settings) -> str:
-    """Build the Swiss QR bill payload following SPC 0200 field order."""
+    """Legacy SPC 0200 payload builder (kept for backward compatibility)."""
 
-    def normalize_country(value: str) -> str:
-        return "CH" if value.strip().lower() == "switzerland" else value
-
-    creditor_country = normalize_country(settings.country)
-    debtor_country = normalize_country(invoice.client.country)
+    creditor_country = _normalize_country(settings.country)
+    debtor_country = _normalize_country(invoice.client.country)
 
     amount_value = f"{invoice.total:.2f}" if invoice.total is not None else ""
 
@@ -47,3 +51,51 @@ def build_payload(invoice: Invoice, settings: Settings) -> str:
     ]
 
     return "\n".join(lines)
+
+
+def generate_qr_png(invoice: Invoice, settings: Settings, destination: Path, reference: Optional[str] = None, dpi: int = 300) -> Path:
+    """Generate a fully compliant Swiss QR code with the Swiss cross using swissqrbill.
+
+    This helper relies on the official swissqrbill package to ensure ISO 20022
+    compliance and embeds the white Swiss cross in the center of the QR symbol.
+    """
+
+    try:
+        from swissqrbill import QRBill
+        from swissqrbill.output import QRBillImage
+    except Exception as exc:  # pragma: no cover - runtime environment concern
+        raise RuntimeError(
+            "Le module 'swissqrbill' est requis pour générer un QR-bill conforme."
+        ) from exc
+
+    creditor_country = _normalize_country(settings.country)
+    debtor_country = _normalize_country(invoice.client.country)
+
+    reference_value = None if reference in (None, "NON", "") else reference
+
+    bill = QRBill(
+        account=settings.qr_iban.replace(" ", ""),
+        creditor={
+            "name": settings.company_name,
+            "line1": settings.street,
+            "line2": f"{settings.zip_code} {settings.city}",
+            "country": creditor_country,
+        },
+        debtor={
+            "name": invoice.client.company,
+            "line1": invoice.client.street,
+            "line2": f"{invoice.client.zip_code} {invoice.client.city}",
+            "country": debtor_country,
+        },
+        amount=invoice.total,
+        currency="CHF",
+        reference=reference_value,
+        additional_information=invoice.notes or "",
+    )
+
+    try:
+        qr_image = QRBillImage(bill, scale=10, dpi=dpi)
+    except TypeError:
+        qr_image = QRBillImage(bill)
+    qr_image.save(destination)
+    return destination
