@@ -62,10 +62,16 @@ def generate_qr_png(invoice: Invoice, settings: Settings, destination: Path, ref
 
     try:
         from qrbill import QRBill
-        from qrbill.output import QRBillImage
     except Exception as exc:  # pragma: no cover - runtime environment concern
         raise RuntimeError(
             "Le module 'qrbill' est requis pour générer un QR-bill conforme."
+        ) from exc
+
+    try:
+        from cairosvg import svg2png
+    except Exception as exc:  # pragma: no cover - runtime environment concern
+        raise RuntimeError(
+            "Le module 'cairosvg' est requis pour convertir le QR-bill SVG en PNG."
         ) from exc
 
     creditor_country = _normalize_country(settings.country)
@@ -93,9 +99,11 @@ def generate_qr_png(invoice: Invoice, settings: Settings, destination: Path, ref
         additional_information=invoice.notes or "",
     )
 
+    svg_path = destination.with_suffix(".svg")
+    bill.as_svg(str(svg_path))
+    svg2png(url=str(svg_path), write_to=str(destination), dpi=dpi)
     try:
-        qr_image = QRBillImage(bill, scale=10, dpi=dpi)
-    except TypeError:
-        qr_image = QRBillImage(bill)
-    qr_image.save(destination)
+        svg_path.unlink()
+    except FileNotFoundError:
+        pass
     return destination

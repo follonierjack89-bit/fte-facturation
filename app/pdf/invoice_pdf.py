@@ -44,10 +44,16 @@ def create_swiss_qr_png(invoice: Invoice, settings: Settings, destination: Path,
 
     try:
         from qrbill import QRBill
-        from qrbill.output import QRBillImage
     except Exception as exc:  # pragma: no cover - dependency/runtime check
         raise RuntimeError(
-            "Le module 'qrbill' (et Pillow) est requis pour générer un QR-bill conforme."
+            "Le module 'qrbill' est requis pour générer un QR-bill conforme."
+        ) from exc
+
+    try:
+        from cairosvg import svg2png
+    except Exception as exc:  # pragma: no cover - dependency/runtime check
+        raise RuntimeError(
+            "Le module 'cairosvg' est requis pour convertir le QR-bill SVG en PNG."
         ) from exc
 
     creditor_country = _normalize_country(settings.country)
@@ -74,8 +80,14 @@ def create_swiss_qr_png(invoice: Invoice, settings: Settings, destination: Path,
         additional_information=invoice.notes or "",
     )
 
-    qr_image = QRBillImage(bill, scale=10, dpi=dpi)
-    qr_image.save(destination)
+    # Render the QR-bill to SVG (includes the Swiss cross) then convert to PNG for FPDF.
+    svg_path = destination.with_suffix(".svg")
+    bill.as_svg(str(svg_path))
+    svg2png(url=str(svg_path), write_to=str(destination), dpi=dpi)
+    try:
+        svg_path.unlink()
+    except FileNotFoundError:
+        pass
     return destination
 
 
@@ -147,11 +159,13 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
     pdf.cell(0, 10, "Section QR-facture", ln=True)
 
     qr_temp_path = Path(__file__).resolve().parent / "qr_temp.png"
+    # Create compliant Swiss QR-bill as PNG (generated from SVG above).
     qr_image_path = create_swiss_qr_png(invoice, settings, qr_temp_path)
 
     qr_size_mm = 70
     x_pos = pdf.w - pdf.r_margin - qr_size_mm
     y_pos = pdf.h - pdf.b_margin - qr_size_mm - 15
+    # Insert the QR-bill PNG into the payment section of the PDF.
     pdf.image(str(qr_image_path), x=x_pos, y=y_pos, w=qr_size_mm, h=qr_size_mm)
 
     pdf.set_xy(10, y_pos)
