@@ -54,18 +54,18 @@ def build_payload(invoice: Invoice, settings: Settings) -> str:
 
 
 def generate_qr_png(invoice: Invoice, settings: Settings, destination: Path, reference: Optional[str] = None, dpi: int = 300) -> Path:
-    """Generate a fully compliant Swiss QR code with the Swiss cross using swissqrbill.
+    """Generate a fully compliant Swiss QR code with the Swiss cross using qrbill.
 
-    This helper relies on the official swissqrbill package to ensure ISO 20022
+    This helper relies on the maintained qrbill package to ensure ISO 20022
     compliance and embeds the white Swiss cross in the center of the QR symbol.
     """
 
     try:
-        from swissqrbill import QRBill
-        from swissqrbill.output import QRBillImage
+        from qrbill import QRBill
+        from qrbill.output import QRBillImage
     except Exception as exc:  # pragma: no cover - runtime environment concern
         raise RuntimeError(
-            "Le module 'swissqrbill' est requis pour générer un QR-bill conforme."
+            "Le module 'qrbill' est requis pour générer un QR-bill conforme."
         ) from exc
 
     creditor_country = _normalize_country(settings.country)

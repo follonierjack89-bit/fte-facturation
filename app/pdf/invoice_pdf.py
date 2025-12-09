@@ -43,17 +43,17 @@ def create_swiss_qr_png(invoice: Invoice, settings: Settings, destination: Path,
     """
 
     try:
-        from swissqrbill import QRBill
-        from swissqrbill.output import QRBillImage
+        from qrbill import QRBill
+        from qrbill.output import QRBillImage
     except Exception as exc:  # pragma: no cover - dependency/runtime check
         raise RuntimeError(
-            "Le module 'swissqrbill' (et Pillow) est requis pour générer un QR-bill conforme."
+            "Le module 'qrbill' (et Pillow) est requis pour générer un QR-bill conforme."
         ) from exc
 
     creditor_country = _normalize_country(settings.country)
     debtor_country = _normalize_country(invoice.client.country)
 
-    # Build the QR-bill data structure (white Swiss cross included by swissqrbill)
+    # Build the QR-bill data structure (white Swiss cross included by qrbill)
     bill = QRBill(
         account=settings.qr_iban.replace(" ", ""),
         creditor={
@@ -184,7 +184,7 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
 def generate_swiss_qr_invoice(invoice: Invoice, settings: Settings, logo_path: Optional[str] = None) -> Path:
     """Generate a PDF invoice embedding a compliant Swiss QR-bill image.
 
-    This dedicated entry point ensures the QR is produced with the swissqrbill
+    This dedicated entry point ensures the QR is produced with the qrbill
     library (white Swiss cross included) before being embedded at the correct
     position in the PDF layout.
     """
