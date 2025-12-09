@@ -2,11 +2,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import qrcode
 from fpdf import FPDF
 
 from app.logic.models import Invoice, Settings
-from app.qr.swiss_qr import build_payload
+from app.qr.swiss_qr import generate_qr_png
 
 FACTURE_DIR = Path("Factures")
 FACTURE_DIR.mkdir(exist_ok=True)
@@ -93,13 +92,16 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 10, "Section QR-facture", ln=True)
-    qr_text = build_payload(invoice, settings)
-    qr_temp_path = Path(__file__).resolve().parent / "qr_temp.png"
-    qr_image = qrcode.make(qr_text)
-    qr_image.save(qr_temp_path)
-    pdf.image(str(qr_temp_path), x=10, y=30, w=60, h=60)
 
-    pdf.set_xy(80, 30)
+    qr_temp_path = Path(__file__).resolve().parent / "qr_temp.png"
+    qr_image_path = generate_qr_png(invoice, settings, qr_temp_path)
+
+    qr_size_mm = 70
+    x_pos = pdf.w - pdf.r_margin - qr_size_mm
+    y_pos = pdf.h - pdf.b_margin - qr_size_mm - 15
+    pdf.image(str(qr_image_path), x=x_pos, y=y_pos, w=qr_size_mm, h=qr_size_mm)
+
+    pdf.set_xy(10, y_pos)
     pdf.set_font("Helvetica", size=11)
     pdf.multi_cell(0, 7, format_address([
         "Compte QR-IBAN : " + settings.qr_iban,
@@ -124,3 +126,14 @@ def generate_invoice_pdf(invoice: Invoice, settings: Settings, logo_path: Option
     except FileNotFoundError:
         pass
     return filename
+
+
+def generate_swiss_qr_invoice(invoice: Invoice, settings: Settings, logo_path: Optional[str] = None) -> Path:
+    """Generate a PDF invoice embedding a compliant Swiss QR-bill image.
+
+    This dedicated entry point ensures the QR is produced with the swissqrbill
+    library (white Swiss cross included) before being embedded at the correct
+    position in the PDF layout.
+    """
+
+    return generate_invoice_pdf(invoice, settings, logo_path)
